@@ -1,0 +1,28 @@
+@startuml deployment-diagram
+
+title DeskFlow — Deployment Diagram
+skinparam defaultFontName JetBrains Mono
+skinparam defaultFontSize 12
+skinparam shadowing false
+
+node "User Device" as Device {
+  [Web Browser] as Browser
+}
+
+node "Docker Host" as Docker {
+  node "deskflow-frontend\n<<container>>\nNext.js 15" as Frontend
+  node "deskflow-backend\n<<container>>\nSpring Boot 3 / Java 21" as Backend
+  node "postgres\n<<container>>" as PgNode {
+    database "PostgreSQL 17" as PG
+  }
+  node "mailhog\n<<container>>" as Mail {
+    [SMTP server] as Smtp
+  }
+}
+
+Browser --> Frontend : HTTP (3000)
+Frontend --> Backend : REST / HTTP (8080)
+Backend --> PG : JDBC (5432)
+Backend --> Smtp : SMTP (1025)
+
+@enduml

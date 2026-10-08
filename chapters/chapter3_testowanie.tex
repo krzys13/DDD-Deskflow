@@ -1,0 +1,202 @@
+\Chapter{Testowanie projektowanego systemu}\label{chapter:rozdzialtrzeci}
+
+\section{Cel etapu}
+
+Celem etapu testowania było potwierdzenie, że system \textit{DeskFlow} realizuje wymagania dziedzinowe dotyczące zarządzania zasobami biurowymi oraz że implementacja zachowuje założoną architekturę heksagonalną.
+
+Zakres testowania obejmuje:
+\begin{itemize}
+    \item testy jednostkowe modelu domenowego, obiektów wartości i usług dziedzinowych,
+    \item testy jednostkowe usług aplikacyjnych oraz mapperów,
+    \item testy integracyjne adapterów wyjściowych, w szczególności repozytoriów JPA,
+    \item testy integracyjne adapterów wejściowych REST,
+    \item testy systemowe obejmujące pełne ścieżki użycia,
+    \item testy architektury weryfikujące przestrzeganie zasad czystej architektury.
+\end{itemize}
+
+\section{Zastosowane narzędzia}
+
+Backend systemu został zaimplementowany w języku Java 21 z użyciem Spring Boot 4.1.0. Do testowania wykorzystano standardowy zestaw narzędzi ekosystemu Spring oraz dodatkowe biblioteki wspierające testy architektury i integracji:
+\begin{itemize}
+    \item JUnit 5 jako podstawowy framework testowy,
+    \item Spring Boot Test oraz moduły \texttt{spring-boot-starter-webmvc-test} i \texttt{spring-boot-starter-data-jpa-test} do uruchamiania kontekstu aplikacji oraz testów warstwowych,
+    \item MockMvc do testowania endpointów REST bez konieczności uruchamiania zewnętrznego serwera HTTP,
+    \item AssertJ do czytelnych asercji,
+    \item Spring Security Test do sprawdzania autoryzacji i kontroli dostępu, 
+    \item Testcontainers z kontenerem PostgreSQL do testów wymagających prawdziwej bazy danych,
+    \item ArchUnit do automatycznej kontroli zależności architektonicznych.
+\end{itemize}
+
+Konfiguracja testowa znajduje się w module backendu. Zależności testowe są zdefiniowane w pliku \texttt{deskflow-backend/pom.xml}, a osobna konfiguracja środowiska testowego w pliku \texttt{deskflow-backend/src/test/resources/application-test.properties}.
+
+\section{Organizacja testów w projekcie}
+
+Testy backendu znajdują się w katalogu \texttt{deskflow-backend/src/test/java/com/deskflow}. Ich struktura odzwierciedla strukturę kodu produkcyjnego i podział na konteksty oraz warstwy:
+\begin{itemize}
+    \item \texttt{allocation} - testy obsługi wniosków o udostępnienie zasobu,
+    \item \texttt{resources} - testy katalogu i cyklu życia zasobów biurowych,
+    \item \texttt{administration} - testy czynności administracyjnych, takich jak zatwierdzanie, odrzucanie, wydawanie i oznaczanie przeterminowania,
+    \item \texttt{employees} - testy pracowników i limitów alokacji,
+    \item \texttt{identity} - testy uwierzytelniania, tokenów JWT i danych użytkownika,
+    \item \texttt{notifications} - testy powiadomień i reakcji na zdarzenia domenowe,
+    \item \texttt{common} - testy wspólnych obiektów wartości, obsługi błędów, walidacji, REST API i testy systemowe,
+    \item \texttt{architecture} - testy architektury systemu.
+\end{itemize}
+
+Taki podział ułatwia powiązanie testów z modelem DDD. Testy dla domeny weryfikują reguły biznesowe bez infrastruktury, testy aplikacyjne sprawdzają orkiestrację przypadków użycia, a testy infrastruktury potwierdzają poprawne podłączenie adapterów do technologii zewnętrznych.
+
+\section{Testy jednostkowe modelu domenowego}
+
+Najważniejsza grupa testów jednostkowych dotyczy modelu domenowego. Celem tych testów było potwierdzenie, że agregaty, obiekty wartości i usługi dziedzinowe samodzielnie egzekwują reguły biznesowe, niezależnie od bazy danych, kontrolerów REST i frameworka Spring.
+
+Przykłady testowanych elementów:
+\begin{itemize}
+    \item \texttt{AllocationRequestTest} - sprawdza cykl życia wniosku o udostępnienie zasobu,
+    \item \texttt{DateRangeTest} - sprawdza poprawność zakresu dat i wykrywanie nakładających się okresów,
+    \item \texttt{OfficeResourceTest} - sprawdza zachowanie zasobu biurowego przy aktualizacji, dezaktywacji oraz zmianie dostępności,
+    \item \texttt{EmployeeTest} - sprawdza model pracownika i przypisane limity,
+    \item \texttt{ResourceIdTest}, \texttt{EmployeeIdTest}, \texttt{ResourceTypeTest} - sprawdzają poprawne tworzenie i walidację obiektów wartości.
+\end{itemize}
+
+W modelu wniosku \texttt{AllocationRequest} testowane są między innymi przejścia stanów:
+\begin{itemize}
+    \item \texttt{SUBMITTED} po złożeniu wniosku,
+    \item \texttt{APPROVED} po zatwierdzeniu,
+    \item \texttt{REJECTED} po odrzuceniu,
+    \item \texttt{CANCELLED} po anulowaniu,
+    \item \texttt{ACTIVE} po wydaniu zasobu,
+    \item \texttt{COMPLETED} po zwrocie zasobu,
+    \item \texttt{OVERDUE} po oznaczeniu przeterminowania.
+\end{itemize}
+
+Testy sprawdzają również niedozwolone przejścia stanów, na przykład brak możliwości wydania zasobu dla wniosku, który nie został zatwierdzony, albo brak możliwości zwrotu zasobu, który nie jest aktywny. Dzięki temu błędne scenariusze są blokowane w samej domenie, a nie dopiero na poziomie interfejsu użytkownika.
+
+\section{Testy usług dziedzinowych}
+
+Oddzielnie przetestowano usługi dziedzinowe, które reprezentują reguły niedające się naturalnie przypisać do pojedynczego obiektu wartości lub encji. Dotyczy to przede wszystkim alokacji zasobów oraz kontroli limitów.
+
+Przykłady testowanych klas:
+\begin{itemize}
+    \item \texttt{EmployeeLimitDomainServiceTest} - sprawdza, czy pracownik nie przekracza limitu aktywnych zasobów danego typu,
+    \item \texttt{ResourceAvailabilityDomainServicesTest} - sprawdza, czy zasób jest dostępny w wybranym okresie,
+    \item \texttt{AllocationLifecycleDomainServicesTest} - sprawdza operacje cyklu życia wniosku: zatwierdzanie, odrzucanie, wydawanie, zwrot i anulowanie,
+    \item \texttt{ResourceLifecycleDomainServicesTest} - sprawdza zmianę stanu zasobu,
+    \item \texttt{ResourceDeactivationDomainServicesTest} - sprawdza warunki dezaktywacji zasobu.
+\end{itemize}
+
+Testy te są szybkie, ponieważ nie wymagają uruchamiania Springa ani bazy danych. Są one najbliższe idei TDD, ponieważ opisują reguły biznesowe w sposób bezpośredni i stanowią dokumentację zachowania domeny.
+
+\section{Testy usług aplikacyjnych}
+
+Usługi aplikacyjne odpowiadają za realizację przypadków użycia i koordynację pracy domeny, portów oraz publikacji zdarzeń. W testach sprawdzono, czy usługi aplikacyjne wywołują odpowiednie reguły domenowe, korzystają z portów wyjściowych i poprawnie reagują na brak danych.
+
+Przykłady testowanych klas:
+\begin{itemize}
+    \item \texttt{AllocationRequestAppServiceTest},
+    \item \texttt{AllocationRequestAppServiceMissingDataTest},
+    \item \texttt{AllocationAdministrationAppServiceTest},
+    \item \texttt{ResourceAppServiceTest},
+    \item \texttt{ResourceAppServiceMissingResourceTest},
+    \item \texttt{AdministrationAppServiceTest},
+    \item \texttt{EmployeeAppServiceTest},
+    \item \texttt{IdentityAccessAppServiceTest},
+    \item \texttt{NotificationAppServiceTest}.
+\end{itemize}
+
+W testach tych wykorzystywane są podstawione implementacje portów lub zależności kontrolowane przez test. Dzięki temu można sprawdzić logikę przypadku użycia bez zależności od konkretnej bazy danych, SMTP lub interfejsu REST.
+
+\section{Testy integracyjne adapterów}
+
+Adaptery są częścią infrastruktury, dlatego wymagają osobnego typu testów. Ich zadaniem jest sprawdzenie, czy implementacje portów poprawnie komunikują się z technologią zewnętrzną albo z innym kontekstem systemu.
+
+Przetestowano między innymi:
+\begin{itemize}
+    \item \texttt{AllocationRequestRepositoryIntegrationTest} - zapis i odczyt wniosków o zasób,
+    \item \texttt{AllocationRequestRepositoryDateEdgeCasesTest} - przypadki brzegowe wyszukiwania wniosków po datach,
+    \item \texttt{OfficeResourceRepositoryIntegrationTest} - zapis i odczyt zasobów biurowych,
+    \item \texttt{EmployeeRepositoryIntegrationTest} - zapis i odczyt pracowników,
+    \item \texttt{ResourceCatalogAdapterTest} - adapter katalogu zasobów używany przez kontekst alokacji,
+    \item \texttt{EmployeeProfileAdapterTest} - adapter profilu pracownika używany przez kontekst alokacji,
+    \item \texttt{AllocationAdministrationAdapterTest} - adapter łączący administrację z alokacją,
+    \item \texttt{SmtpNotificationAdapterTest} - adapter powiadomień mailowych,
+    \item \texttt{SpringDomainEventPublisherAdapterTest} - publikowanie zdarzeń domenowych przez Spring.
+\end{itemize}
+
+Testy repozytoriów potwierdzają poprawność mapowania między modelem domenowym a encjami relacyjnymi. Jest to istotne, ponieważ w architekturze heksagonalnej domena nie powinna być bezpośrednio związana z JPA. Mappery i adaptery muszą więc poprawnie odtwarzać agregaty z danych zapisanych w tabelach.
+
+\section{Testy adapterów REST i walidacji}
+
+Dla adapterów wejściowych REST przygotowano testy sprawdzające poprawność komunikacji z użytkownikiem systemu przez API HTTP. Testy te obejmują mapowanie danych wejściowych, walidację, obsługę błędów oraz podstawową kontrolę dostępu.
+
+Przykłady testów:
+\begin{itemize}
+    \item \texttt{RestControllerWebMvcTest} - sprawdza działanie kontrolerów REST,
+    \item \texttt{AllocationRequestRestMapperTest} - sprawdza mapowanie DTO na dane wymagane przez przypadki użycia,
+    \item \texttt{InputValidationSystemTest} - sprawdza odrzucanie niepoprawnych danych wejściowych,
+    \item \texttt{GlobalExceptionHandlerTest} - sprawdza ujednolicony sposób zwracania błędów,
+    \item \texttt{AuthorizationSystemTest} - sprawdza zabezpieczenia endpointów i role użytkowników.
+\end{itemize}
+
+Warstwa REST pełni rolę adaptera wejściowego. Testy tej warstwy nie powinny powielać całej logiki domenowej, lecz sprawdzać, czy żądania HTTP są poprawnie tłumaczone na wywołania portów wejściowych aplikacji i czy odpowiedzi są zrozumiałe dla klienta systemu.
+
+
+\section{Testy systemowe}
+
+Testy systemowe sprawdzają kompletne scenariusze działania systemu od adaptera wejściowego do adapterów wyjściowych. Najważniejszym testem tego typu jest \texttt{FullAllocationCycleSystemTest}, który przechodzi przez pełny cykl obsługi wniosku:
+\begin{itemize}
+    \item pracownik składa wniosek o udostępnienie zasobu,
+    \item kierownik zatwierdza wniosek,
+    \item kierownik wydaje zasób,
+    \item kierownik przyjmuje zwrot zasobu,
+    \item system aktualizuje status wniosku po każdym kroku.
+\end{itemize}
+
+Ten test odpowiada głównemu przepływowi biznesowemu systemu i łączy kilka warstw: REST API, uwierzytelnienie JWT, usługi aplikacyjne, model domenowy, repozytoria i bazę danych. Dzięki temu można wykryć błędy, które nie byłyby widoczne w samych testach jednostkowych, na przykład niepoprawne mapowanie DTO, błędną konfigurację zabezpieczeń albo nieprawidłowe utrwalanie statusu.
+
+\section{Testy zdarzeń domenowych}
+
+System wykorzystuje podejście EDA w obrębie aplikacji. Agregaty domenowe publikują zdarzenia, a adaptery lub słuchacze reagują na zmiany stanu.
+
+Testy obejmują między innymi:
+\begin{itemize}
+    \item generowanie zdarzeń przez agregat \texttt{AllocationRequest}, np. \texttt{AllocationRequestSubmitted}, \texttt{AllocationRequestApproved}, \texttt{ResourceIssued}, \texttt{ResourceReturned}, \texttt{AllocationOverdue},
+    \item generowanie zdarzeń przez agregat \texttt{OfficeResource}, np. \texttt{ResourceUpdated}, \texttt{ResourceMadeUnavailable}, \texttt{ResourceMadeAvailable}, \texttt{ResourceDeactivated},
+    \item obsługę zdarzeń przez \texttt{ResourceAvailabilityEventListener},
+    \item obsługę zdarzeń przez \texttt{NotificationEventListener},
+    \item publikację zdarzeń przez \texttt{SpringDomainEventPublisherAdapter}.
+\end{itemize}
+
+Dzięki temu przetestowano nie tylko wynik bezpośredniego wywołania metody, ale również skutki uboczne istotne z punktu widzenia integracji wewnątrz systemu.
+
+\section{Testy architektury}
+
+Zgodność z czystą architekturą i architekturą heksagonalną jest weryfikowana automatycznie przez testy ArchUnit. W projekcie znajdują się między innymi testy \texttt{CleanArchitectureTest} i \texttt{DomainIsolationTest}.
+
+Testy architektury sprawdzają, czy:
+\begin{itemize}
+    \item warstwa domeny nie zależy od infrastruktury,
+    \item warstwa domeny nie zależy od adapterów,
+    \item model domenowy nie zależy od usług aplikacyjnych,
+    \item model domenowy nie zależy od portów aplikacyjnych,
+    \item warstwa aplikacji nie zależy od infrastruktury,
+    \item warstwa aplikacji nie zależy od adapterów,
+    \item konteksty domenowe nie tworzą cyklicznych zależności.
+\end{itemize}
+
+Takie testy są ważne, ponieważ reguły architektoniczne łatwo naruszyć w trakcie rozwoju systemu. ArchUnit pozwala traktować architekturę jako element testów regresyjnych, a nie tylko jako opis w dokumentacji.
+
+\section{Uruchamianie testów}
+
+Testy backendu można uruchomić z katalogu \texttt{deskflow-backend} poleceniem:
+
+\begin{verbatim}
+mvn test
+\end{verbatim}
+
+W przypadku testów integracyjnych z Testcontainers wymagane jest działające środowisko Docker. Testy uruchamiane są w profilu testowym i korzystają z konfiguracji przeznaczonej do testów, dzięki czemu nie modyfikują danych środowiska deweloperskiego ani produkcyjnego. Brak dostępnego środowiska Docker uniemożliwia uruchomienie testów korzystających z kontenerów PostgreSQL, natomiast testy jednostkowe i testy warstw mogą być wykonywane niezależnie od kontenerów.
+
+\section{Wnioski z etapu testowania}
+
+Etap testowania potwierdził, że system \textit{DeskFlow} został zaprojektowany w sposób umożliwiający testowanie na kilku poziomach. Model domenowy jest odseparowany od infrastruktury, dlatego można go testować szybko i niezależnie. Adaptery są testowane osobno, co pozwala wykrywać błędy integracyjne bez mieszania ich z logiką biznesową. Testy systemowe potwierdzają, że główne scenariusze biznesowe działają po połączeniu wszystkich warstw.
+
+Najważniejszą korzyścią z takiego podejścia jest ograniczenie ryzyka regresji. Zmiany w implementacji można weryfikować automatycznie, a testy architektury dodatkowo chronią projekt przed przypadkowym naruszeniem zasad DDD, SOLID i architektury heksagonalnej.

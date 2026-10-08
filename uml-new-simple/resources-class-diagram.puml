@@ -1,0 +1,129 @@
+@startuml resources-class-diagram
+
+title Context "resources" — Class Diagram
+
+skinparam defaultFontName JetBrains Mono
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide circle
+hide empty members
+
+class OfficeResource <<Aggregate Root>> {
+  id : ResourceId
+  type : ResourceType
+  name : String
+  location : Location
+  active : boolean
+  available : boolean
+  --
+  update(name, location)
+  markAsUnavailable()
+  markAsAvailable()
+  deactivate()
+}
+
+enum ResourceType <<Enumeration>> {
+  DESK
+  CONFERENCE_ROOM
+  LAPTOP
+  MONITOR
+  PROJECTOR
+  VEHICLE
+  ACCESSORY
+}
+class Location <<Value Object>> {
+  building : String
+  floor : int
+  number : String
+}
+
+interface DomainEvent <<Interface>> {
+  occurredOn : LocalDateTime
+}
+class ResourceUpdated
+class ResourceMadeAvailable
+class ResourceMadeUnavailable
+class ResourceDeactivated
+
+class OfficeResourceFactory <<Factory>> {
+  create(type, name, location) : OfficeResource
+}
+class UpdateOfficeResourceDomainService <<Domain Service>> {
+  updateOfficeResource(resource, name, location)
+}
+class MarkOfficeResourceAvailableDomainService <<Domain Service>> {
+  markOfficeResourceAvailable(resource)
+}
+class MarkOfficeResourceUnavailableDomainService <<Domain Service>> {
+  markOfficeResourceUnavailable(resource)
+}
+class DeactivateOfficeResourceDomainService <<Domain Service>> {
+  deactivateOfficeResource(resource, relatedRequestStatuses)
+}
+
+interface ResourceManagementInputPort <<Inbound Port>> {
+  addResource(type, name, building, floor, number) : ResourceId
+  updateResource(resourceId, name, building, floor, number)
+  markUnavailable(resourceId)
+  markAvailable(resourceId)
+  deactivateResource(resourceId)
+  getResource(resourceId) : Optional<ResourceView>
+  getActiveResources() : List<ResourceView>
+}
+interface OfficeResourceRepositoryPort <<Outbound Port>>
+interface ResourceAllocationRequestPort <<Outbound Port>>
+interface DomainEventPublisherPort <<Outbound Port>>
+
+class ResourceAppService <<Application Service>> {
+  addResource(type, name, building, floor, number) : ResourceId
+  updateResource(resourceId, name, building, floor, number)
+  markUnavailable(resourceId)
+  markAvailable(resourceId)
+  deactivateResource(resourceId)
+  getResource(resourceId) : Optional<ResourceView>
+  getActiveResources() : List<ResourceView>
+}
+class HibernateOfficeResourceRepositoryAdapter <<Outbound Adapter>>
+class AllocationRequestAdapter <<Outbound Adapter>>
+class ResourceAvailabilityEventListener <<Inbound Adapter>>
+
+note right of ResourceAllocationRequestPort
+  ACL towards "allocation" —
+  adapter delegates to
+  AllocationRequestInputPort
+end note
+
+OfficeResource *-- ResourceType
+OfficeResource *-- Location
+OfficeResource "1" o-- "*" DomainEvent
+
+DomainEvent <|.. ResourceUpdated
+DomainEvent <|.. ResourceMadeAvailable
+DomainEvent <|.. ResourceMadeUnavailable
+DomainEvent <|.. ResourceDeactivated
+
+ResourceManagementInputPort <|.. ResourceAppService
+OfficeResourceRepositoryPort <|.. HibernateOfficeResourceRepositoryAdapter
+ResourceAllocationRequestPort <|.. AllocationRequestAdapter
+
+OfficeResourceFactory ..> OfficeResource : <<instantiate>>
+UpdateOfficeResourceDomainService ..> OfficeResource
+MarkOfficeResourceAvailableDomainService ..> OfficeResource
+MarkOfficeResourceUnavailableDomainService ..> OfficeResource
+DeactivateOfficeResourceDomainService ..> OfficeResource
+
+ResourceAppService ..> OfficeResourceFactory : <<use>>
+ResourceAppService --> UpdateOfficeResourceDomainService
+ResourceAppService --> MarkOfficeResourceAvailableDomainService
+ResourceAppService --> MarkOfficeResourceUnavailableDomainService
+ResourceAppService --> DeactivateOfficeResourceDomainService
+ResourceAppService --> OfficeResourceRepositoryPort
+ResourceAppService --> ResourceAllocationRequestPort : fetch statuses before deactivate
+ResourceAppService --> DomainEventPublisherPort
+
+ResourceAvailabilityEventListener ..> ResourceManagementInputPort
+
+OfficeResourceRepositoryPort ..> OfficeResource : find/save
+
+@enduml

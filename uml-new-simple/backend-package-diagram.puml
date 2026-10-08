@@ -1,0 +1,121 @@
+@startuml Package Diagram — com.deskflow
+!theme plain
+
+title Backend Package Diagram — com.deskflow
+
+package "com.deskflow" as root_pkg {
+
+  package "administration" as administration_bc {
+    package "application" as administration_app {
+      package "domain.model" as administration_domain_model
+      package "port.in" as administration_port_in
+      package "port.out" as administration_port_out
+      package "service" as administration_service
+    }
+    package "infrastructure" as administration_infra {
+      package "in.web" as administration_web {
+        package "dto" as administration_dto
+      }
+      package "out.allocation" as administration_out_allocation
+    }
+  }
+
+  package "allocation" as allocation_bc {
+    package "application" as allocation_app {
+      package "domain.model" as allocation_domain_model {
+        package "events" as allocation_events
+        package "vo" as allocation_value_objects
+      }
+      package "domain.service" as allocation_domain_service
+      package "port.in" as allocation_port_in
+      package "port.out" as allocation_port_out
+      package "service" as allocation_service
+    }
+    package "infrastructure" as allocation_infra {
+      package "in.web" as allocation_web {
+        package "dto" as allocation_dto
+      }
+      package "out.employees" as allocation_out_employees
+      package "out.persistence" as allocation_out_persistence
+      package "out.resources" as allocation_out_resources
+    }
+  }
+
+  package "common" as common_bc {
+  }
+
+  package "employees" as employees_bc {
+    package "application" as employees_app {
+      package "domain.model" as employees_domain_model {
+        package "vo" as employees_value_objects
+      }
+      package "port.in" as employees_port_in
+      package "port.out" as employees_port_out
+      package "service" as employees_service
+    }
+    package "infrastructure" as employees_infra {
+      package "in.web" as employees_web
+      package "out.persistence" as employees_persistence
+    }
+  }
+
+  package "identity" as identity_bc {
+    package "application" as identity_app {
+      package "port.in" as identity_port_in
+      package "port.out" as identity_port_out
+      package "service" as identity_service
+    }
+    package "infrastructure" as identity_infra {
+      package "in.web" as identity_web {
+        package "dto" as identity_dto
+      }
+      package "out.employees" as identity_out_employees
+      package "out.security" as identity_out_security
+      package "security" as identity_security
+    }
+  }
+
+  package "notifications" as notifications_bc {
+    package "application" as notifications_app {
+      package "port.in" as notifications_port_in
+      package "port.out" as notifications_port_out
+      package "service" as notifications_service
+    }
+    package "infrastructure" as notifications_infra {
+      package "in.events" as notifications_in_events
+      package "out.smtp" as notifications_smtp
+    }
+  }
+
+  package "resources" as resources_bc {
+    package "application" as resources_app {
+      package "domain.model" as resources_domain_model {
+        package "events" as resources_events
+        package "vo" as resources_value_objects
+      }
+      package "domain.service" as resources_domain_service
+      package "port.in" as resources_port_in
+      package "port.out" as resources_port_out
+      package "service" as resources_service
+    }
+    package "infrastructure" as resources_infra {
+      package "in.events" as resources_in_events
+      package "in.web" as resources_web {
+        package "dto" as resources_dto
+      }
+      package "out.allocation" as resources_out_allocation
+      package "out.persistence" as resources_persistence
+    }
+  }
+}
+
+' === dependencies between bounded contexts ===
+administration_bc ..> allocation_bc : depends on
+allocation_bc ..> common_bc : depends on
+allocation_bc ..> employees_bc : depends on
+allocation_bc ..> resources_bc : depends on
+identity_bc ..> employees_bc : depends on
+notifications_bc ..> allocation_bc : depends on
+resources_bc ..> common_bc : depends on
+
+@enduml

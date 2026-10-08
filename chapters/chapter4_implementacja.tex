@@ -1,0 +1,370 @@
+\Chapter{Implementowanie projektowanego systemu}\label{chapter:rozdzialczwarty}
+
+\section{Cel etapu}
+
+Celem etapu implementacji było wykonanie działającego systemu informatycznego \textit{DeskFlow} na podstawie przygotowanego modelu dziedziny, przypadków użycia i założeń architektonicznych. System wspiera zarządzanie zasobami biurowymi, w szczególności składanie wniosków o udostępnienie zasobu, zatwierdzanie lub odrzucanie wniosków, wydawanie zasobów, przyjmowanie zwrotów, obsługę przeterminowań oraz zarządzanie katalogiem zasobów.
+
+Implementacja została wykonana zgodnie z podejściem Domain Driven Design w czystej architekturze hexagonalnej. Najważniejsze reguły biznesowe umieszczono w modelu domenowym, a zależności techniczne odseparowano przez porty i adaptery. Backend, czyli rdzeń systemu, został zaimplementowany w języku Java. 
+
+\section{Ogólna charakterystyka rozwiązania}
+
+\textit{DeskFlow} jest aplikacją webową składającą się z:
+\begin{itemize}
+    \item backendu Java/Spring Boot udostępniającego REST API,
+    \item frontendowego klienta webowego Next.js,
+    \item relacyjnej bazy danych PostgreSQL,
+    \item modułu powiadomień wykorzystującego SMTP,
+    \item konfiguracji Docker Compose dla środowiska deweloperskiego i produkcyjnego.
+\end{itemize}
+
+Backend został zorganizowany jako modułowy monolit w stylu architektury heksagonalnej. Z punktu widzenia wymagań projektu jest to rozwiązanie typu SOA na poziomie usług aplikacyjnych i portów, bez rozbijania systemu na osobne procesy mikroserwisowe. Taki wybór ogranicza złożoność wdrożenia, a jednocześnie zachowuje wyraźne granice kontekstów i warstw.
+
+\section{Technologie użyte w implementacji}
+
+W backendzie zastosowano:
+\begin{itemize}
+    \item Java 21,
+    \item Spring Boot 4.1.0,
+    \item Spring Web oparty na Spring Framework 7 do implementacji REST API,
+    \item Spring Data JPA do implementacji adapterów repozytoriów,
+    \item Spring Security 7 do uwierzytelniania i autoryzacji,
+    \item JWT do bezstanowej autoryzacji zapytań HTTP,
+    \item Flyway do wersjonowania schematu bazy danych,
+    \item PostgreSQL jako relacyjna baza danych,
+    \item Spring Mail do wysyłania powiadomień,
+\end{itemize}
+
+We frontendzie zastosowano:
+\begin{itemize}
+    \item Next.js 16.2.9,
+    \item React 19,
+    \item TypeScript,
+    \item komponenty UI oparte między innymi o Radix UI,
+    \item formularze z React Hook Form i Zod,
+    \item komunikację z backendem przez REST API.
+\end{itemize}
+
+Do uruchamiania systemu przygotowano konfigurację Docker i Docker Compose z rozdzieleniem środowiska deweloperskiego i produkcyjnego. W środowisku deweloperskim uruchamiane są kontenery backendu, frontendu, PostgreSQL oraz MailHog. Wariant produkcyjny jest przeznaczony do uruchamiania na platformie Coolify i obejmuje backend, frontend oraz bazę danych z konfiguracją przekazywaną przez zmienne środowiskowe.
+
+\section{Struktura backendu}
+
+Kod backendu znajduje się w katalogu \texttt{deskflow-backend/src/main/java/com/deskflow}. Struktura pakietów została podzielona według kontekstów domenowych i warstw architektonicznych.
+
+Główne obszary implementacji:
+\begin{itemize}
+    \item \texttt{allocation} - obsługa wniosków o udostępnienie zasobów (kontekst: "Udostępnianie zasobów biurowych"),
+    \item \texttt{resources} - katalog i cykl życia zasobów biurowych (kontekst: "Zarządzanie zasobami biurowymi"),
+    \item \texttt{administration} - zarządzanie wnioskami przez administratora (kontekst: "Administracja wnioskami"),
+    \item \texttt{employees} - zarządzanie systemem: pracownicy, role i limity alokacji (kontekst: "Zarządzanie systemem"),
+    \item \texttt{identity} - logowanie, tokeny JWT i dane użytkownika (kontekst: "Uwierzytelnianie i autoryzacja"),
+    \item \texttt{notifications} - powiadomienia wynikające ze zdarzeń domenowych (kontekst: "Powiadomienia"),
+\end{itemize}
+
+W każdym głównym kontekście zachowano podział na warstwy:
+\begin{itemize}
+    \item \texttt{application/domain/model} - agregaty, encje, obiekty wartości, fabryki i zdarzenia domenowe,
+    \item \texttt{application/domain/service} - usługi dziedzinowe,
+    \item \texttt{application/service} - usługi aplikacyjne orkiestrujące przypadki użycia,
+    \item \texttt{application/port/in} - porty wejściowe,
+    \item \texttt{application/port/out} - porty wyjściowe,
+    \item \texttt{infrastructure/in} - adaptery wejściowe, np. kontrolery REST i listenery zdarzeń,
+    \item \texttt{infrastructure/out} - adaptery wyjściowe, np. repozytoria JPA, SMTP i adaptery do komunikacji międzykontekstowej.
+\end{itemize}
+
+
+\section{Model domenowy}
+
+Najważniejsze elementy domeny zaimplementowano jako klasy modelu domenowego. Agregaty posiadają metody reprezentujące operacje biznesowe i same pilnują poprawności przejść stanów.
+
+Najważniejsze agregaty:
+\begin{itemize}
+    \item \texttt{AllocationRequest} - wniosek o udostępnienie zasobu,
+    \item \texttt{OfficeResource} - zasób biurowy,
+    \item \texttt{Employee} - pracownik z rolą i limitami,
+    \item \texttt{AdministeredAllocationRequest} - administracyjny widok wniosku wykorzystywany w kontekście administracji.
+\end{itemize}
+
+Najważniejsze obiekty wartości:
+\begin{itemize}
+    \item \texttt{AllocationRequestId},
+    \item \texttt{ResourceId},
+    \item \texttt{EmployeeId},
+    \item \texttt{DateRange},
+    \item \texttt{ResourceType},
+    \item \texttt{Location},
+    \item statusy, np. \texttt{RequestStatus}, \texttt{AllocationUsageStatus}, \texttt{AdministeredAllocationStatus}.
+\end{itemize}
+
+Obiekt \texttt{AllocationRequest} reprezentuje cykl życia wniosku. Udostępnia operacje domenowe takie jak \texttt{approve}, \texttt{reject}, \texttt{cancel}, \texttt{issueResource}, \texttt{returnResource} i \texttt{markAsOverdue}. Każda z tych metod sprawdza, czy operacja jest dozwolona w aktualnym stanie. Przykładowo zasób może zostać wydany tylko dla wniosku zatwierdzonego, a zwrot może nastąpić tylko dla wniosku aktywnego albo przeterminowanego.
+
+Obiekt \texttt{OfficeResource} reprezentuje zasób biurowy i odpowiada za reguły dotyczące jego aktualizacji, dostępności i dezaktywacji. Zasobu nieaktywnego nie można edytować ani oznaczać jako dostępnego. Dezaktywacja powoduje również ustawienie zasobu jako niedostępnego.
+
+\section{Globalna obsługa wyjątków}
+
+W implementacji zastosowano standardowe wyjątki języka Java. Naruszenia reguł stanu są reprezentowane przez \texttt{IllegalStateException}, natomiast niepoprawne argumenty i dane wejściowe przez \texttt{IllegalArgumentException}. Przykładowo agregat \texttt{AllocationRequest} nie pozwala wydać zasobu dla wniosku, który nie jest zatwierdzony, a agregat \texttt{OfficeResource} nie pozwala edytować nieaktywnego zasobu. Brak wymaganego obiektu w warstwie aplikacyjnej jest reprezentowany przez \texttt{NoSuchElementException}.
+
+Wyjątki te nie są pozostawione domyślnej obsłudze Springa. W pakiecie \texttt{common.infrastructure.in.web} znajduje się klasa \texttt{GlobalExceptionHandler} oznaczona adnotacją \texttt{@RestControllerAdvice}. Odpowiada ona za przekształcenie wyjątków na odpowiedzi HTTP zwracane przez REST API:
+\begin{itemize}
+    \item \texttt{IllegalStateException} jest mapowany na status \texttt{409 Conflict}, ponieważ oznacza konflikt z aktualnym stanem biznesowym zasobu lub wniosku,
+    \item \texttt{IllegalArgumentException} jest mapowany na status \texttt{400 Bad Request}, ponieważ oznacza niepoprawne dane przekazane do operacji,
+    \item \texttt{NoSuchElementException} jest mapowany na status \texttt{404 Not Found}, ponieważ oznacza brak szukanego zasobu,
+    \item \texttt{MethodArgumentNotValidException} jest mapowany na status \texttt{400 Bad Request} dla błędów walidacji danych wejściowych kontrolera.
+\end{itemize}
+
+Dzięki takiemu rozwiązaniu warstwa domenowa może pozostać niezależna od HTTP i Springa, a jednocześnie klient API otrzymuje jednoznaczną odpowiedź zgodną z charakterem błędu. Nieobsłużone wyjątki techniczne nadal byłyby traktowane przez framework jako błędy serwera, natomiast typowe naruszenia reguł biznesowych są jawnie mapowane na statusy \texttt{400}, \texttt{404} albo \texttt{409}.
+
+\section{Usługi dziedzinowe}
+
+W kontekście allocation (kontekst: "Udostępnianie zasobów biurowych") zaimplementowano między innymi:
+\begin{itemize}
+    \item \texttt{EnsureEmployeeWithinLimitDomainService} - kontrola limitu zasobów przypisanych pracownikowi,
+    \item \texttt{EnsureResourceEligibleForAllocationDomainService} - sprawdzenie, czy zasób może być przedmiotem alokacji,
+    \item \texttt{EnsureResourceAvailableInPeriodDomainService} - sprawdzenie dostępności zasobu w podanym zakresie dat,
+    \item \texttt{ApproveAllocationRequestDomainService},
+    \item \texttt{RejectAllocationRequestDomainService},
+    \item \texttt{CancelAllocationRequestDomainService},
+    \item \texttt{IssueAllocationResourceDomainService},
+    \item \texttt{ReturnAllocationResourceDomainService},
+    \item \texttt{MarkAllocationRequestOverdueDomainService}.
+\end{itemize}
+
+W kontekście resources (kontekst: "Zarządzanie zasobami biurowymi") zaimplementowano między innymi:
+\begin{itemize}
+    \item \texttt{OfficeResourceFactory},
+    \item \texttt{UpdateOfficeResourceDomainService},
+    \item \texttt{MarkOfficeResourceAvailableDomainService},
+    \item \texttt{MarkOfficeResourceUnavailableDomainService},
+    \item \texttt{DeactivateOfficeResourceDomainService}.
+\end{itemize}
+
+\section{Usługi aplikacyjne i przypadki użycia}
+
+Usługi aplikacyjne orkiestrują przypadki użycia systemu. Nie powinny zawierać szczegółów technologicznych ani rozbudowanej logiki biznesowej. Ich zadaniem jest pobranie wymaganych danych przez porty wyjściowe, wywołanie modelu domenowego lub usług dziedzinowych, zapis zmian i publikacja zdarzeń.
+
+Najważniejsze usługi aplikacyjne:
+\begin{itemize}
+    \item \texttt{AllocationRequestAppService} - składanie wniosków, anulowanie wniosków, przeglądanie zasobów i historii,
+    \item \texttt{AllocationAdministrationAppService} - zatwierdzanie, odrzucanie, wydawanie, zwracanie i oznaczanie wniosków jako przeterminowanych,
+    \item \texttt{ResourceAppService} - zarządzanie katalogiem zasobów,
+    \item \texttt{AdministrationAppService} - widok i operacje administracyjne (zatwierdzanie/odrzucanie wniosków),
+    \item \texttt{EmployeeAppService} - zarządzanie pracownikami i ich limitami,
+    \item \texttt{IdentityAccessAppService} - logowanie i dostęp do profilu użytkownika,
+    \item \texttt{NotificationAppService} - obsługa powiadomień.
+\end{itemize}
+
+Przykładowo metoda składania wniosku w \texttt{AllocationRequestAppService} wykonuje następujące kroki:
+\begin{itemize}
+    \item pobiera dane pracownika przez port \texttt{EmployeeProfilePort},
+    \item pobiera dane zasobu przez port \texttt{ResourceCatalogPort},
+    \item deleguje sprawdzenie, czy zasób może być udostępniony, do usługi domenowej \texttt{EnsureResourceEligibleForAllocationDomainService},
+    \item deleguje sprawdzenie limitu aktywnych zasobów pracownika danego typu do usługi domenowej \texttt{EnsureEmployeeWithinLimitDomainService},
+    \item deleguje sprawdzenie dostępności zasobu w wybranym zakresie dat do usługi domenowej \texttt{EnsureResourceAvailableInPeriodDomainService},
+    \item tworzy agregat \texttt{AllocationRequest} przez fabrykę,
+    \item zapisuje wniosek przez \texttt{AllocationRequestRepositoryPort},
+    \item publikuje zdarzenia domenowe.
+\end{itemize}
+
+Ten przepływ pokazuje zastosowanie DDD i architektury heksagonalnej: przypadek użycia jest widoczny w warstwie aplikacji, reguły znajdują się w domenie, a infrastruktura jest ukryta za portami.
+
+\section{Porty i adaptery}
+
+Architektura heksagonalna została zaimplementowana przez rozdzielenie portów i adapterów.
+
+Porty wejściowe określają, jakie operacje udostępnia aplikacja, np.
+\begin{itemize}
+    \item \texttt{ResourceManagementInputPort},
+    \item \texttt{EmployeeManagementInputPort},
+    \item \texttt{AllocationRequestInputPort},
+    \item \texttt{AllocationAdministrationInputPort},
+    \item porty związane z logowaniem i powiadomieniami.
+\end{itemize}
+
+Porty wyjściowe określają, czego aplikacja potrzebuje od świata zewnętrznego lub innych kontekstów, np.:
+\begin{itemize}
+    \item \texttt{AllocationRequestRepositoryPort},
+    \item \texttt{OfficeResourceRepositoryPort},
+    \item \texttt{EmployeeRepositoryPort},
+    \item \texttt{ResourceCatalogPort},
+    \item \texttt{EmployeeProfilePort},
+    \item \texttt{DomainEventPublisherPort},
+    \item porty powiadomień i integracji między kontekstami.
+\end{itemize}
+
+Adaptery wejściowe znajdują się głównie w pakietach \texttt{infrastructure/in}. Są to kontrolery REST (np. \texttt{AllocationRequestController}, \texttt{AdministrationController}, \texttt{ResourceController}, \texttt{EmployeeAdminController}, \texttt{AuthController}), listenery zdarzeń (np. \texttt{ResourceAvailabilityEventListener}, \texttt{NotificationEventListener}) oraz scheduler wywołujący okresowo logikę domenową (\texttt{OverdueAllocationScheduler}).
+
+Adaptery wyjściowe znajdują się w pakietach \texttt{infrastructure/out}. Są to między innymi adaptery repozytoriów JPA, mappery między encjami JPA i modelem domenowym, adapter SMTP oraz adaptery komunikacji między kontekstami.
+
+Dzięki temu implementacja frameworkowa nie przenika do modelu domenowego. Domenowe klasy nie posiadają adnotacji JPA, kontrolerów ani zależności od Springa.
+
+\section{Zdarzenia domenowe i EDA}
+
+System wykorzystuje zdarzenia domenowe jako sposób informowania innych części aplikacji o istotnych zmianach biznesowych. Agregaty zbierają zdarzenia podczas wykonywania operacji, a usługi aplikacyjne publikują je po zapisie zmian.
+
+Przykłady zdarzeń w kontekście allocation (kontekst: "Udostępnianie zasobów biurowych"):
+\begin{itemize}
+    \item \texttt{AllocationRequestSubmitted},
+    \item \texttt{AllocationRequestApproved},
+    \item \texttt{AllocationRequestRejected},
+    \item \texttt{AllocationRequestCancelled},
+    \item \texttt{ResourceIssued},
+    \item \texttt{ResourceReturned},
+    \item \texttt{AllocationOverdue}.
+\end{itemize}
+
+Przykłady zdarzeń w kontekście zasobów (kontekst: "Zarządzanie zasobami biurowymi"):
+\begin{itemize}
+    \item \texttt{ResourceUpdated},
+    \item \texttt{ResourceMadeAvailable},
+    \item \texttt{ResourceMadeUnavailable},
+    \item \texttt{ResourceDeactivated}.
+\end{itemize}
+
+Zdarzenia są publikowane przez port \texttt{DomainEventPublisherPort}, którego implementacja infrastrukturalna korzysta z mechanizmów Spring. Słuchacze zdarzeń, np. \texttt{ResourceAvailabilityEventListener} i \texttt{NotificationEventListener}, reagują na zmiany i wykonują działania poboczne, takie jak aktualizacja dostępności zasobu albo przygotowanie powiadomienia. Takie rozwiązanie zmniejsza sprzężenie między kontekstami i wspiera podejście Event Driven Architecture.
+
+\section{Warstwa persystencji}
+
+Dane systemu są przechowywane w relacyjnej bazie PostgreSQL. Schemat bazy jest wersjonowany przez Flyway. Pierwsza migracja \texttt{V1\_\_init\_schema.sql} tworzy tabele:
+\begin{itemize}
+    \item \texttt{employees},
+    \item \texttt{allocation\_limits},
+    \item \texttt{office\_resources},
+    \item \texttt{allocation\_requests}.
+\end{itemize}
+
+W tabeli \texttt{employees} przechowywane są dane pracowników, role i hashe haseł. Tabela \texttt{allocation\_limits} określa limity zasobów dla pracowników. Tabela \texttt{office\_resources} przechowuje zasoby biurowe, ich typ, nazwę, lokalizację oraz status aktywności i dostępności. Tabela \texttt{allocation\_requests} przechowuje wnioski, ich status, zakres dat, uzasadnienie oraz daty wydania i zwrotu.
+
+Persystencja nie jest bezpośrednio częścią modelu domenowego. Dla każdego agregatu istnieją encje JPA oraz mappery, np. \texttt{AllocationRequestEntity}, \texttt{AllocationRequestMapper}, \texttt{OfficeResourceEntity}, \texttt{OfficeResourceMapper}, \texttt{EmployeeEntity} i \texttt{EmployeeMapper}. Adaptery repozytoriów odpowiadają za konwersję między modelem domenowym a modelem relacyjnym.
+
+\section{Uwierzytelnianie i autoryzacja}
+
+Za obszar tożsamości odpowiada kontekst \texttt{identity}. Logowanie jest realizowane przez \texttt{AuthController}, a dostęp do chronionych endpointów zabezpiecza Spring Security.
+
+System używa tokenów JWT. Klasa \texttt{JwtTokenProvider} odpowiada za wystawianie i weryfikację tokenów, natomiast \texttt{JwtAuthenticationFilter} odczytuje token z nagłówka HTTP, tworzy kontekst bezpieczeństwa i przekazuje go do \texttt{SecurityContextHolder}. Dane użytkownika są pobierane przez \texttt{DeskflowUserDetailsService} oraz adaptery korzystające z danych pracowników.
+
+Autoryzacja opiera się na rolach, np. pracownik może składać i anulować swoje wnioski, a kierownik lub administrator może wykonywać operacje administracyjne, takie jak zatwierdzanie, odrzucanie, wydawanie i przyjmowanie zwrotów.
+
+\section{Frontend}
+
+Frontend znajduje się w katalogu \texttt{deskflow-frontend}. Został wykonany jako aplikacja Next.js z React i TypeScript. Jego zadaniem jest udostępnienie użytkownikowi interfejsu do logowania, przeglądania zasobów, składania wniosków, przeglądania historii oraz wykonywania operacji administracyjnych.
+
+Komunikacja z backendem odbywa się przez REST API. Adres backendu jest konfigurowany przez zmienną środowiskową \texttt{NEXT\_PUBLIC\_API\_URL}. W kodzie frontendu wydzielono warstwę komunikacji z API w pliku \texttt{lib/api.ts} oraz kontekst uwierzytelniania w \texttt{lib/auth-context.tsx}.
+
+Frontend nie zawiera logiki domenowej. Reguły biznesowe są egzekwowane przez backend. Interfejs użytkownika odpowiada za prezentację danych, zebranie danych od użytkownika i wysłanie odpowiednich żądań HTTP.
+
+\section{Integracja komponentów}
+
+Komponenty systemu są integrowane przez Docker Compose, przy czym konfiguracja została rozdzielona na wariant deweloperski i produkcyjny. Środowisko deweloperskie opisuje plik \texttt{docker-compose.dev.yml}. Jest ono przeznaczone do pracy lokalnej i uruchamia:
+\begin{itemize}
+    \item \texttt{postgres} - bazę danych PostgreSQL,
+    \item \texttt{mailhog} - lokalny serwer testowy do odbierania maili,
+    \item \texttt{backend-dev} - backend Spring Boot na porcie 8080,
+    \item \texttt{frontend-dev} - frontend Next.js na porcie 3000.
+\end{itemize}
+
+W tym wariancie backend łączy się z PostgreSQL przez JDBC, a z MailHog przez SMTP. Frontend komunikuje się z backendem przez HTTP z użyciem lokalnego adresu API. Zależności startowe w Docker Compose zapewniają, że backend czeka na gotowość bazy danych, a frontend startuje po backendzie. MailHog pełni wyłącznie rolę narzędzia pomocniczego do testowania wiadomości e-mail i nie jest elementem środowiska produkcyjnego.
+
+Wariant produkcyjny opisuje plik \texttt{docker-compose.prod.yml}. Jest on używany przy wdrożeniu na platformie Coolify i nie zawiera usług typowo deweloperskich, takich jak MailHog. Zakłada uruchomienie backendu, frontendu i bazy danych jako kontenerów z konfiguracją przekazywaną przez zmienne środowiskowe, takie jak \texttt{POSTGRES\_PASSWORD}, \texttt{JWT\_SECRET}, \texttt{ALLOWED\_ORIGIN}, \texttt{NEXT\_PUBLIC\_API\_URL} i opcjonalne dane SMTP. W produkcji adresy usług, sekrety i ustawienia CORS są ustawiane w panelu Coolify, a ruch użytkownika kierowany jest do kontenera frontendu, który komunikuje się z backendem przez skonfigurowany publiczny adres API.
+
+Różnice między obrazami deweloperskimi i produkcyjnymi wynikają z innego celu ich użycia. Wariant deweloperski ma umożliwiać szybką pracę lokalną, montowanie kodu z repozytorium, automatyczne przeładowanie aplikacji i debugowanie. Wariant produkcyjny ma natomiast uruchamiać gotowe artefakty, ograniczać rozmiar obrazu oraz nie zawierać narzędzi potrzebnych wyłącznie podczas kompilacji.
+
+\begin{table}[h!]
+\centering
+\small
+\caption{Porównanie Dockerfile backendu w środowisku deweloperskim i produkcyjnym}
+\label{tab:dockerfile-backend-dev-prod}
+\begin{tabular}{|p{0.24\textwidth}|p{0.34\textwidth}|p{0.34\textwidth}|}
+\hline
+\textbf{Cecha} & \textbf{Backend - dev} & \textbf{Backend - prod} \\
+\hline
+Plik & \texttt{deskflow-backend/Dockerfile.dev} & Etapy \texttt{backend-build} i \texttt{backend} w pliku \texttt{Dockerfile.prod} \\
+\hline
+Obraz bazowy & \texttt{maven:3.9-eclipse-temurin-21} & Budowanie: \texttt{maven:3.9-eclipse-temurin-21}; uruchomienie: \texttt{eclipse-temurin:21-jre-alpine} \\
+\hline
+Sposób uruchomienia & Aplikacja startuje przez \texttt{mvn spring-boot:run}. & Aplikacja startuje jako gotowy plik JAR przez \texttt{java -jar app.jar}. \\
+\hline
+Artefakt aplikacji & Kod źródłowy jest kopiowany do kontenera i uruchamiany przez Maven. & Najpierw wykonywane jest \texttt{mvn package}, a do obrazu uruchomieniowego kopiowany jest tylko zbudowany plik JAR. \\
+\hline
+Debugowanie & Wystawiony jest port \texttt{5005} dla zdalnego debuggera JVM. & Nie ma portu debugowania; wystawiony jest tylko port aplikacji \texttt{8080}. \\
+\hline
+Użytkownik w kontenerze & Brak osobnego użytkownika aplikacyjnego; kontener działa domyślnie jako \texttt{root}. & Tworzony i używany jest nieuprzywilejowany użytkownik \texttt{deskflow}. \\
+\hline
+Cel & Lokalny rozwój, szybkie zmiany kodu i debugowanie. & Stabilne uruchomienie zbudowanego backendu w środowisku produkcyjnym. \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\small
+\caption{Porównanie Dockerfile frontendu w środowisku deweloperskim i produkcyjnym}
+\label{tab:dockerfile-frontend-dev-prod}
+\begin{tabular}{|p{0.24\textwidth}|p{0.34\textwidth}|p{0.34\textwidth}|}
+\hline
+\textbf{Cecha} & \textbf{Frontend - dev} & \textbf{Frontend - prod} \\
+\hline
+Plik & \texttt{deskflow-frontend/Dockerfile.dev} & Etapy \texttt{frontend-build} i \texttt{frontend} w pliku \texttt{Dockerfile.prod} \\
+\hline
+Obraz bazowy & \texttt{node:22-alpine} & Budowanie i uruchomienie: \texttt{node:22-alpine}, ale w osobnych etapach obrazu. \\
+\hline
+Sposób uruchomienia & Aplikacja startuje przez \texttt{npm run dev}. & Aplikacja startuje przez \texttt{node server.js} z katalogu \texttt{.next/standalone}. \\
+\hline
+Budowanie aplikacji & Nie wykonuje się produkcyjnego buildu; działa serwer deweloperski Next.js. & Wykonywane jest \texttt{npm run build}, a do obrazu uruchomieniowego kopiowane są tylko pliki potrzebne do działania aplikacji. \\
+\hline
+Konfiguracja API & Adres API jest przekazywany przez \texttt{NEXT\_PUBLIC\_API\_URL} w \texttt{docker-compose.dev.yml}. & Adres API jest przekazywany jako argument budowania i zmienna środowiskowa \texttt{NEXT\_PUBLIC\_API\_URL}. \\
+\hline
+Użytkownik w kontenerze & Kontener działa domyślnie jako użytkownik obrazu bazowego, czyli \texttt{root}. & Kontener działa jako nieuprzywilejowany użytkownik \texttt{node}. \\
+\hline
+Cel & Lokalny rozwój interfejsu, szybkie odświeżanie i praca z kodem źródłowym. & Uruchomienie zoptymalizowanej aplikacji Next.js w środowisku produkcyjnym. \\
+\hline
+\end{tabular}
+\end{table}
+
+W repozytorium znajduje się również plik \texttt{deskflow-frontend/Dockerfile.frontend}. Jest to samodzielny produkcyjny Dockerfile dla frontendu, oparty na tym samym podejściu co etap frontendowy w \texttt{Dockerfile.prod}: najpierw buduje aplikację Next.js, a następnie uruchamia wynikowy serwer z katalogu \texttt{.next/standalone}. W aktualnej konfiguracji wdrożeniowej Coolify używany jest jednak wspólny plik \texttt{Dockerfile.prod}, ponieważ pozwala z jednego pliku budować osobne targety dla backendu i frontendu.
+
+\section{Wdrożenie}
+
+Wdrożenie jest bezpośrednim wykorzystaniem wariantu produkcyjnego opisanego w poprzedniej sekcji. Oznacza to, że zamiast uruchamiania deweloperskich serwerów przez Maven i \texttt{npm run dev}, platforma Coolify buduje produkcyjne targety z pliku \texttt{Dockerfile.prod} i uruchamia je zgodnie z definicją z \texttt{docker-compose.prod.yml}.
+
+W środowisku deweloperskim system można uruchomić poleceniem:
+
+\begin{verbatim}
+docker compose -f docker-compose.dev.yml up -build
+\end{verbatim}
+
+W środowisku produkcyjnym ten sam podział komponentów jest zachowany, ale zmienia się sposób ich przygotowania i konfiguracji. Coolify odpowiada za zbudowanie obrazów, start kontenerów, przekazanie zmiennych środowiskowych, konfigurację domen oraz utrzymywanie działania usług.
+
+Istotne elementy wdrożenia produkcyjnego to healthcheck backendu pod adresem \texttt{/actuator/health}, restart kontenerów w trybie \texttt{unless-stopped} oraz trwały wolumen bazy danych. Sekrety i wartości zależne od środowiska, takie jak hasło do bazy danych, sekret JWT, adres API i dozwolony adres frontendu, nie są zhardkodowane. Są przekazywane do kontenerów jako zmienne środowiskowe ustawiane w Coolify. Dzięki temu konfiguracja wdrożeniowa pozostaje powtarzalna, ale dane wrażliwe nie są częścią kodu źródłowego.
+
+\section{Spełnienie zasad DDD, SOLID i czystej architektury}
+
+Implementacja spełnia założenia DDD przez:
+\begin{itemize}
+    \item jawne wydzielenie kontekstów domenowych,
+    \item użycie agregatów i obiektów wartości,
+    \item umieszczenie reguł biznesowych w modelu domenowym i usługach dziedzinowych,
+    \item zastosowanie zdarzeń domenowych,
+    \item zachowanie nazw zgodnych z językiem dziedziny w kodzie angielskim.
+\end{itemize}
+
+Implementacja spełnia założenia czystej architektury przez:
+\begin{itemize}
+    \item oddzielenie domeny od infrastruktury,
+    \item zastosowanie portów wejściowych i wyjściowych,
+    \item implementowanie szczegółów technicznych jako adapterów,
+    \item kontrolowanie kierunku zależności testami ArchUnit.
+\end{itemize}
+
+Zasady SOLID są realizowane przede wszystkim przez:
+\begin{itemize}
+    \item pojedynczą odpowiedzialność klas, np. osobne klasy dla kontrolerów, usług aplikacyjnych, usług domenowych, mapperów i adapterów,
+    \item odwrócenie zależności przez porty,
+    \item ograniczenie sprzężenia domeny z technologiami,
+    \item łatwość podstawiania innych implementacji portów, np. innego repozytorium, innego mechanizmu powiadomień albo innego adaptera publikacji zdarzeń.
+\end{itemize}
+
+
+\section{Wnioski z etapu implementacji}
+
+Etap implementacji doprowadził do utworzenia działającego systemu zgodnego z założeniami projektu. Najważniejsze funkcje biznesowe zostały zaimplementowane w backendzie Java, a interfejs użytkownika i infrastruktura zostały zintegrowane z rdzeniem systemu.
+
+Najważniejsza cecha rozwiązania to oddzielenie logiki domenowej od szczegółów technicznych. Implementacja zachowuje strukturę wynikającą z DDD i architektury hexagonalnej: agregaty, usługi dziedzinowe, przypadki użycia, porty, adaptery i zdarzenia domenowe.

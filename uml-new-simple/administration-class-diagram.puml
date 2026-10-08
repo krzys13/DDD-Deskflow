@@ -1,0 +1,88 @@
+@startuml administration-class-diagram
+
+title Context "administration" — Class Diagram
+
+skinparam defaultFontName JetBrains Mono
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide circle
+hide empty members
+
+class AdministeredAllocationRequest <<Aggregate Root>> {
+  id : AdministeredAllocationRequestId
+  status : AdministeredAllocationStatus
+  --
+  ensureCanApprove()
+  ensureCanReject()
+  ensureCanIssue()
+  ensureCanReturn()
+}
+
+class AdministeredAllocationRequestId <<Value Object>> {
+  value : UUID
+}
+enum AdministeredAllocationStatus <<Value Object>> {
+  SUBMITTED
+  APPROVED
+  ACTIVE
+  OVERDUE
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+class AdministeredAllocationView <<Read Model>> {
+  id : AdministeredAllocationRequestId
+  employeeId : EmployeeId
+  resourceId : ResourceId
+  status : AdministeredAllocationStatus
+  dateFrom : LocalDate
+  dateTo : LocalDate
+  justification : String
+}
+
+interface AdministrationInputPort <<Inbound Port>> {
+  listRequests(status) : List<AdministeredAllocationView>
+  approveRequest(requestId)
+  rejectRequest(requestId, reason)
+  issueResource(requestId)
+  returnResource(requestId)
+  monitorActiveAllocations() : List<AdministeredAllocationView>
+  detectOverdueAllocations()
+}
+interface AdministrationAllocationPort <<Outbound Port>>
+note right of AdministrationAllocationPort
+  ACL towards "allocation" —
+  adapter delegates to
+  AllocationAdministrationInputPort
+end note
+
+class AdministrationAppService <<Application Service>> {
+  listRequests(status) : List<AdministeredAllocationView>
+  approveRequest(requestId)
+  rejectRequest(requestId, reason)
+  issueResource(requestId)
+  returnResource(requestId)
+  monitorActiveAllocations() : List<AdministeredAllocationView>
+  detectOverdueAllocations()
+}
+class AllocationAdministrationAdapter <<Adapter>>
+class OverdueAllocationScheduler <<Scheduler>>
+
+class AdministrationController <<Inbound Adapter>>
+
+AdministeredAllocationRequest *-- AdministeredAllocationRequestId
+AdministeredAllocationRequest *-- AdministeredAllocationStatus
+
+AdministrationInputPort <|.. AdministrationAppService
+AdministrationAllocationPort <|.. AllocationAdministrationAdapter
+
+AdministrationController --> AdministrationInputPort
+AdministrationAppService --> AdministrationAllocationPort
+AdministrationAppService --> AdministeredAllocationRequest
+AdministrationAppService ..> AdministeredAllocationView : <<use>>
+
+OverdueAllocationScheduler ..> AdministrationAppService : detectOverdueAllocations()
+
+@enduml

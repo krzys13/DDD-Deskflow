@@ -1,0 +1,70 @@
+# DeskFlow — lokalne środowisko deweloperskie
+# Uruchom: docker compose -f docker-compose.dev.yml up --build
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: deskflow-postgres
+    environment:
+      POSTGRES_DB: deskflow
+      POSTGRES_USER: deskflow
+      POSTGRES_PASSWORD: deskflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deskflow -d deskflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: deskflow-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  backend-dev:
+    build:
+      context: ./deskflow-backend
+      dockerfile: Dockerfile.dev
+    container_name: deskflow-backend-dev
+    ports:
+      - "8080:8080"
+      - "5005:5005"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/deskflow
+      SPRING_DATASOURCE_USERNAME: deskflow
+      SPRING_DATASOURCE_PASSWORD: deskflow
+      SPRING_MAIL_HOST: mailhog
+      SPRING_MAIL_PORT: 1025
+      JWT_SECRET: deskflow-dev-secret-key-change-in-production
+      ALLOWED_ORIGIN: http://localhost:3000
+      SPRING_JPA_SHOW_SQL: "true"
+    volumes:
+      - ./deskflow-backend:/app
+      - /app/target
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend-dev:
+    build:
+      context: ./deskflow-frontend
+      dockerfile: Dockerfile.dev
+    container_name: deskflow-frontend-dev
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    volumes:
+      - ./deskflow-frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend-dev
+
+volumes:
+  postgres_data:

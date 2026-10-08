@@ -1,0 +1,199 @@
+@startuml allocation-class-diagram
+
+title Context "allocation" — Class Diagram
+
+skinparam defaultFontName JetBrains Mono
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide circle
+hide empty members
+
+class AllocationRequest <<Aggregate Root>> {
+  id : AllocationRequestId
+  employeeId : EmployeeId
+  resourceId : ResourceId
+  dateRange : DateRange
+  status : RequestStatus
+  --
+  approve()
+  reject(reason)
+  cancel()
+  issueResource()
+  returnResource()
+  markAsOverdue()
+}
+
+class AllocationRequestId <<Value Object>> {
+  value : UUID
+}
+class DateRange <<Value Object>> {
+  dateFrom : LocalDate
+  dateTo : LocalDate
+  --
+  overlaps(other) : boolean
+}
+enum RequestStatus <<Value Object>> {
+  SUBMITTED
+  APPROVED
+  ACTIVE
+  COMPLETED
+  REJECTED
+  CANCELLED
+  OVERDUE
+}
+class DomainEvent <<Interface>> {
+  occurredOn : LocalDateTime
+}
+class EmployeeId <<Value Object>> {
+  value : UUID
+}
+class ResourceId <<Value Object>> {
+  value : UUID
+}
+
+class AllocationRequestSubmitted
+class AllocationRequestApproved
+class AllocationRequestRejected
+class AllocationRequestCancelled
+class ResourceIssued
+class ResourceReturned
+class AllocationOverdue
+
+class EmployeeAllocationProfile <<Read Model>>
+class ResourceAllocationProfile <<Read Model>>
+class AllocationRequestView <<Read Model>>
+
+class AllocationRequestFactory <<Factory>> {
+  create(employeeId, resourceId, dateRange, justification) : AllocationRequest
+}
+
+class EnsureEmployeeWithinLimitDomainService <<Domain Service>> {
+  ensureEmployeeWithinLimit(employee, resourceType, currentActive)
+}
+class EnsureResourceEligibleForAllocationDomainService <<Domain Service>> {
+  ensureResourceEligibleForAllocation(resource)
+}
+class EnsureResourceAvailableInPeriodDomainService <<Domain Service>> {
+  ensureResourceAvailableInPeriod(overlappingRequests)
+}
+class CancelAllocationRequestDomainService <<Domain Service>> {
+  cancelAllocationRequest(request, employeeId)
+}
+class ApproveAllocationRequestDomainService <<Domain Service>> {
+  approveAllocationRequest(request)
+}
+class RejectAllocationRequestDomainService <<Domain Service>> {
+  rejectAllocationRequest(request, reason)
+}
+class IssueAllocationResourceDomainService <<Domain Service>> {
+  issueAllocationResource(request)
+}
+class ReturnAllocationResourceDomainService <<Domain Service>> {
+  returnAllocationResource(request)
+}
+class MarkAllocationRequestOverdueDomainService <<Domain Service>> {
+  markAllocationRequestOverdue(request)
+}
+
+interface AllocationRequestInputPort <<Inbound Port>> {
+  submitRequest(employeeId, resourceId, dateFrom, dateTo, justification) : AllocationRequestId
+  cancelRequest(requestId, employeeId)
+  browseResources() : List<ResourceCatalogItem>
+  browseHistory(employeeId) : List<AllocationRequestView>
+  findActiveForResource(resourceId) : List<AllocationRequestView>
+}
+interface AllocationAdministrationInputPort <<Inbound Port>> {
+  getRequest(requestId) : Optional<AllocationRequestView>
+  listRequests(status) : List<AllocationRequestView>
+  approveRequest(requestId)
+  rejectRequest(requestId, reason)
+  issueResource(requestId)
+  returnResource(requestId)
+  monitorActiveAllocations() : List<AllocationRequestView>
+  detectOverdueAllocations()
+}
+class AllocationRequestAppService <<Application Service>>
+class AllocationAdministrationAppService <<Application Service>>
+
+class AllocationRequestController <<Inbound Adapter>>
+class AllocationAdministrationAdapter <<Inbound Adapter>>
+note right of AllocationAdministrationAdapter
+  AllocationAdministrationAdapter
+  (administration BC)
+end note
+
+interface AllocationRequestRepositoryPort <<Outbound Port>>
+interface ResourceCatalogPort <<Outbound Port>>
+interface EmployeeProfilePort <<Outbound Port>>
+class HibernateAllocationRequestRepositoryAdapter <<Outbound Adapter>>
+class ResourceCatalogAdapter <<Outbound Adapter>>
+class EmployeeProfileAdapter <<Outbound Adapter>>
+class DomainEventPublisherPort <<Outbound Port>>
+
+
+AllocationRequest *-- AllocationRequestId
+AllocationRequest *-- EmployeeId
+AllocationRequest *-- ResourceId
+AllocationRequest *-- DateRange
+AllocationRequest *-- RequestStatus
+AllocationRequest "1" o-- "*" DomainEvent
+
+DomainEvent <|.. AllocationRequestSubmitted
+DomainEvent <|.. AllocationRequestApproved
+DomainEvent <|.. AllocationRequestRejected
+DomainEvent <|.. AllocationRequestCancelled
+DomainEvent <|.. ResourceIssued
+DomainEvent <|.. ResourceReturned
+DomainEvent <|.. AllocationOverdue
+
+AllocationRequestFactory ..> AllocationRequest : <<instantiate>>
+
+EnsureEmployeeWithinLimitDomainService ..> EmployeeAllocationProfile
+EnsureResourceEligibleForAllocationDomainService ..> ResourceAllocationProfile
+EnsureResourceAvailableInPeriodDomainService ..> AllocationRequest
+CancelAllocationRequestDomainService ..> AllocationRequest
+ApproveAllocationRequestDomainService ..> AllocationRequest
+RejectAllocationRequestDomainService ..> AllocationRequest
+IssueAllocationResourceDomainService ..> AllocationRequest
+ReturnAllocationResourceDomainService ..> AllocationRequest
+MarkAllocationRequestOverdueDomainService ..> AllocationRequest
+
+' inbound: adapter -> port -> app service
+AllocationRequestController --> AllocationRequestInputPort
+AllocationAdministrationAdapter --> AllocationAdministrationInputPort
+AllocationRequestAppService ..|> AllocationRequestInputPort
+AllocationAdministrationAppService ..|> AllocationAdministrationInputPort
+
+' app service -> domain service / factory
+AllocationRequestAppService ..> AllocationRequestFactory : <<use>>
+AllocationRequestAppService --> EnsureResourceEligibleForAllocationDomainService
+AllocationRequestAppService --> EnsureEmployeeWithinLimitDomainService
+AllocationRequestAppService --> EnsureResourceAvailableInPeriodDomainService
+AllocationRequestAppService --> CancelAllocationRequestDomainService
+
+AllocationAdministrationAppService --> ApproveAllocationRequestDomainService
+AllocationAdministrationAppService --> RejectAllocationRequestDomainService
+AllocationAdministrationAppService --> IssueAllocationResourceDomainService
+AllocationAdministrationAppService --> ReturnAllocationResourceDomainService
+AllocationAdministrationAppService --> MarkAllocationRequestOverdueDomainService
+
+' outbound: app service -> port <- adapter
+AllocationRequestAppService ..> AllocationRequestRepositoryPort : <<use>>
+AllocationRequestAppService --> ResourceCatalogPort
+AllocationRequestAppService --> EmployeeProfilePort
+AllocationRequestAppService ..> DomainEventPublisherPort : <<use>>
+
+AllocationAdministrationAppService ..> AllocationRequestRepositoryPort : <<use>>
+AllocationAdministrationAppService ..> DomainEventPublisherPort : <<use>>
+
+HibernateAllocationRequestRepositoryAdapter ..|> AllocationRequestRepositoryPort
+ResourceCatalogAdapter ..|> ResourceCatalogPort
+EmployeeProfileAdapter ..|> EmployeeProfilePort
+
+AllocationRequestRepositoryPort ..> AllocationRequest : find/save
+AllocationRequestRepositoryPort ..> AllocationRequestView : map
+ResourceCatalogPort ..> ResourceAllocationProfile : find
+EmployeeProfilePort ..> EmployeeAllocationProfile : find
+
+@enduml

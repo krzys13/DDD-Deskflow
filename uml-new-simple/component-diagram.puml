@@ -1,0 +1,117 @@
+@startuml component-diagram
+title DeskFlow Backend — Component Diagram
+
+skinparam defaultFontName JetBrains Mono
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam componentStyle rectangle
+
+actor "Employee / Manager / IT Admin" as User
+
+' ======= LEGENDA =======
+rectangle "Typy mapowań:\nPartnership - Partnerstwo\nC/S+ACL - Customer/Supplier + ACL\nC/S - Customer/Supplier\nPub/Sub - Publisher/Subscriber" as Legend
+
+' ======= BOUNDED CONTEXTS =======
+package "identity" as ID #E8F4FD {
+  rectangle "AuthController" as AuthCtrl
+  rectangle "IdentityAccessAppService" as IdSvc
+  rectangle "EmployeeIdentityProfileAdapter" as IdEmpAdapter
+}
+
+package "allocation" as AL #FFF3E0 {
+  rectangle "AllocationRequestController" as AllocCtrl
+  rectangle "AllocationRequestAppService" as AllocSvc
+  rectangle "AllocationAdministrationAppService" as AllocAdmSvc
+  database "allocation_requests" as AllocDB
+  rectangle "ResourceCatalogAdapter" as ResCatAdp
+  rectangle "EmployeeProfileAdapter" as EmpProfAdp
+}
+
+package "resources" as RE #E8F5E9 {
+  rectangle "ResourceController" as ResCtrl
+  rectangle "ResourceAppService" as ResSvc
+  database "office_resources" as ResDB
+  rectangle "AllocationRequestAdapter" as AllocReqAdp
+  rectangle "ResourceAvailabilityEventListener" as ResEvtLis
+}
+
+package "employees" as EM #F3E5F5 {
+  rectangle "EmployeeAdminController" as EmpAdmCtrl
+  rectangle "EmployeeAppService" as EmpSvc
+  database "employees" as EmpDB
+}
+
+package "administration" as AD #FCE4EC {
+  rectangle "AdministrationController" as AdmCtrl
+  rectangle "AdministrationAppService" as AdmSvc
+  rectangle "AllocationAdministrationAdapter" as AdmAllocAdp
+  rectangle "OverdueAllocationScheduler" as Sched
+}
+
+package "notifications" as NO #FFFDE7 {
+  rectangle "NotificationEventListener" as NotifLis
+  rectangle "NotificationAppService" as NotifSvc
+  rectangle "SmtpNotificationAdapter" as Smtp
+}
+
+package "common" as CO #F5F5F5 {
+  rectangle "SpringDomainEventPublisherAdapter\n(EventBus)" as EventBus
+}
+
+' ======= UŻYTKOWNIK =======
+User --> AuthCtrl
+User --> AllocCtrl
+User --> ResCtrl
+User --> AdmCtrl
+User --> EmpAdmCtrl
+
+' ======= WEWNĄTRZ KONTEKSTÓW (tylko kluczowe) =======
+AuthCtrl --> IdSvc
+IdSvc --> IdEmpAdapter
+
+AllocCtrl --> AllocSvc
+AllocSvc --> AllocDB
+AllocAdmSvc --> AllocDB
+
+ResCtrl --> ResSvc
+ResSvc --> ResDB
+ResEvtLis --> ResSvc
+
+EmpAdmCtrl --> EmpSvc
+EmpSvc --> EmpDB
+AdmCtrl --> AdmSvc
+Sched --> AdmSvc
+
+NotifLis --> NotifSvc
+NotifSvc --> Smtp
+
+' ======= MAPOWANIA MIĘDZY KONTEKSTAMI =======
+
+' Identity ← Employees: Customer/Supplier + ACL
+IdEmpAdapter "D" ..> "U" EmpSvc : <<C/S + ACL>>\nprofil na podstawie tożsamości
+
+' Allocation ↔ Resources: Partnership
+ResCatAdp "D" ..> "U" ResSvc : <<Partnership>>\nkatalog zasobów
+AllocReqAdp "D" ..> "U" AllocSvc : <<Partnership>>\nstan rezerwacji
+
+' Allocation ← Employees: Customer/Supplier + ACL
+EmpProfAdp "D" ..> "U" EmpSvc : <<C/S + ACL>>\ndane pracownika
+
+' Administration ← Allocation: Customer/Supplier + ACL
+AdmAllocAdp "D" ..> "U" AllocAdmSvc : <<C/S + ACL>>\noperacje administracyjne
+
+' Administration ← Employees: Customer/Supplier
+AdmSvc "D" ..> "U" EmpSvc : <<C/S>>\nzarządzanie pracownikami
+
+' Allocation → Notifications: Publisher/Subscriber
+AllocSvc "U" --> EventBus : <<Pub/Sub>>\nDomainEventPublisher
+AllocAdmSvc "U" --> EventBus : <<Pub/Sub>>
+ResSvc "U" --> EventBus : <<Pub/Sub>>
+
+EventBus --> "D" NotifLis : <<Pub/Sub>>\nAllocationRequested / OverdueDetected
+EventBus --> "D" ResEvtLis : <<Pub/Sub>>\nResourceIssued / Returned
+
+' Notifications ← Employees: Customer/Supplier
+NotifSvc "D" ..> "U" EmpSvc : <<C/S>>\nEmployeeManagementInputPort
+
+@enduml

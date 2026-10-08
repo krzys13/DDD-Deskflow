@@ -1,0 +1,78 @@
+@startuml use-case-diagram
+
+title DeskFlow — Use Case Diagram (simplified)
+
+skinparam defaultFontName JetBrains Mono
+skinparam defaultFontSize 12
+skinparam shadowing false
+
+left to right direction
+
+actor Employee
+actor Manager
+actor "IT Admin" as ITAdmin
+actor Scheduler
+
+Manager -|> Employee
+ITAdmin -|> Manager
+
+rectangle "DeskFlow Backend" {
+
+  package "identity" {
+    usecase "UC-00\nLog In" as UC0
+  }
+
+  package "allocation" {
+    usecase "UC-01\nBrowse Resource Catalog" as UC1
+    usecase "UC-02\nSubmit Allocation Request" as UC2
+    usecase "UC-03\nCancel Request" as UC3
+    usecase "UC-14\nView Own Request History" as UC14
+  }
+
+  package "administration" {
+    usecase "UC-04\nList / Review Requests" as UC4
+    usecase "UC-05\nApprove Request" as UC5
+    usecase "UC-06\nReject Request" as UC6
+    usecase "UC-07\nIssue Resource" as UC7
+    usecase "UC-08\nReturn Resource" as UC8
+    usecase "UC-09\nDetect Overdue Allocations" as UC9
+    usecase "UC-15\nMonitor Active Allocations" as UC15
+  }
+
+  package "resources" {
+    usecase "UC-10\nMark Resource Available / Unavailable" as UC10
+    usecase "UC-11\nAdd Resource" as UC11
+    usecase "UC-12\nEdit Resource" as UC12
+    usecase "UC-13\nDeactivate Resource" as UC13
+  }
+
+  package "employees" {
+    usecase "UC-16\nList Employees" as UC16
+    usecase "UC-17\nConfigure Allocation Limits" as UC17
+  }
+
+}
+
+Employee --> UC0
+Employee --> UC1
+Employee --> UC2
+Employee --> UC3
+Employee --> UC14
+
+Manager --> UC4
+Manager --> UC5
+Manager --> UC6
+Manager --> UC7
+Manager --> UC8
+Manager --> UC15
+Manager --> UC10
+Manager --> UC16
+Manager --> UC17
+
+ITAdmin --> UC11
+ITAdmin --> UC12
+ITAdmin --> UC13
+
+Scheduler --> UC9
+
+@enduml
